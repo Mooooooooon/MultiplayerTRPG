@@ -37,11 +37,17 @@ enum {
 	ID_THEGAME_START,
 	ID_PLAYER_CLASS,
 	ID_DISPLAY_STATUS,
+	ID_ASK_COMMAND,
+	ID_INC_COMMAND,
+	ID_DisplayTurn,
+	ID_ATTACK,
+	ID_HEAL,
+	ID_SHOW_PLAYERS,
 };
 
 enum EPlayerClass
 {
-	Warrior,
+	Warrior=1,
 	Rogue,
 	Cleric,
 };
@@ -53,7 +59,7 @@ struct SPlayer
 	EPlayerClass m_class;
 	unsigned int m_block;
 	unsigned int m_heal;
-
+	unsigned int m_maxhealth;
 	//function to send a packet with name/health/class etc
 	void SendName(RakNet::SystemAddress systemAddress, bool isBroadcast)
 	{
@@ -110,13 +116,14 @@ void displayStat(RakNet::Packet* packet)
 
 	RakNet::MessageID messageId;
 	bs.Read(messageId);
-	unsigned int m_health, m_damage, m_heal;
+	unsigned int m_health, m_damage, m_heal, m_maxhealth;
 
 	bs.Read(m_health);
 	bs.Read(m_damage);
 	bs.Read(m_heal);
+	bs.Read(m_maxhealth);
 
-	std::cout << "\n Health : " << m_health << " Damage : " << m_damage << " Heal : " << m_heal;
+	std::cout << "-Health: " << m_health << "/" << m_maxhealth << " Damage: " << m_damage << " Heal: " << m_heal;
 }
 
 unsigned char GetPacketIdentifier(RakNet::Packet *packet)
@@ -156,7 +163,7 @@ void InputHandler()
 		char userInput[255];
 		if (g_networkState == NS_Lobby)
 		{
-			std::cout << "------------ Welcome to TRPG -----------" << std::endl;
+			std::cout << "\n\n------------ Welcome to TRPG -----------\n" << std::endl;
 			std::cout << "Enter your name to play or type quit to leave" << std::endl;
 			std::cin >> userInput;
 			//quitting is not acceptable in our game, create a crash to teach lesson
@@ -190,7 +197,7 @@ void InputHandler()
 			g_networkState_mutex.lock();
 			g_networkState = NS_Pending;
 			g_networkState_mutex.unlock();
-			std::cout << "- Type (stat) Status window \n";
+			//std::cout << "- Type (stat) Status window \n";
 		}
 
 		else if (g_networkState == NS_Pending)
@@ -310,6 +317,201 @@ bool HandleLowLevelPackets(RakNet::Packet* packet)
 	return isHandled;
 }
 
+void PlayerTurn(RakNet::Packet* packet) {
+	RakNet::BitStream bs(packet->data, packet->length, false);
+
+	RakNet::MessageID messageId;
+	unsigned int m_health, m_damage, m_heal, m_maxhealth;
+	std::string t1name, t2name,t1classname, t2classname;
+	unsigned int t1health, t1maxhealth, t2health, t2maxhealth;
+	EPlayerClass t1class, t2class;
+	RakNet::RakNetGUID t1GUID, t2GUID;
+
+
+	bs.Read(messageId);
+
+	bs.Read(m_health);	
+	bs.Read(m_maxhealth);
+
+	bs.Read(t1GUID);
+	bs.Read(t1name);
+	bs.Read(t1class);
+	bs.Read(t1health);
+	bs.Read(t1maxhealth);
+
+	bs.Read(t2GUID);
+	bs.Read(t2name);
+	bs.Read(t2class);
+	bs.Read(t2health);
+	bs.Read(t2maxhealth);
+
+	switch (t1class)
+	{
+	case Warrior:
+		t1classname = "Warrior";
+		break;
+	case Rogue:
+		t1classname = "Rogue";
+		break;
+	case Cleric:
+		t1classname = "Cleric";
+		break;
+	default:
+		break;
+	}
+	std::cout << "\n- Your turn. Type in the number you wish to target" << std::endl;
+	std::cout << "(1) " << t1name << "[" << t1classname << "]" << " HP: " << t1health << "/" << t1maxhealth << std::endl;
+	std::cout << "(2) " << t2name << "[" << t2classname << "]" << " HP: " << t2health << "/" << t2maxhealth << std::endl;
+
+	bool acceptable = false;
+	char userInput[255];
+	while (!acceptable) {
+		std::cout << "\n- Choose one";
+		std::cout << "\n(1) Attack, (2) Heal" << std::endl;
+		std::cin >> userInput;
+
+		if (userInput == "1" || userInput == "2") {
+			acceptable = true;
+		}
+
+
+	}
+
+	acceptable = false;
+	char userInput2[255];
+	while (!acceptable) {
+		if (userInput == "1") {
+			std::cout << "\n - Your turn. Type in the number you wish to target" << std::endl;
+			std::string numberin = "\n(DEAD)";
+			std::string numberin2 = "\n(DEAD)";
+			bool isT1Alive = t1health > 0;
+			bool isT2Alive = t2health > 0;
+
+			if (isT1Alive) {
+				numberin = "\n(1)";
+			}
+			if (isT2Alive) {
+				numberin2 = "\n(2)";
+			}
+			std::cout << numberin << t1name << "[" << t1classname << "]" << " HP: " << t1health << "/" << t1maxhealth << std::endl;
+			std::cout << numberin << t2name << "[" << t2classname << "]" << " HP: " << t2health << "/" << t2maxhealth << std::endl;
+			std::cin >> userInput2;
+			if (userInput2 == "1") {
+				RakNet::BitStream bs;
+				bs.Write((RakNet::MessageID)ID_ATTACK);
+				RakNet::RakNetGUID target;
+				bs.Write(target);
+
+				assert(g_rakPeerInterface->Send(&bs, HIGH_PRIORITY, RELIABLE_ORDERED, 0, g_serverAddress, false));
+
+			}
+			else if (userInput2 == "2") {
+
+			}
+
+
+		}
+		else if (userInput == "2") {
+
+			RakNet::BitStream bs;
+			bs.Write((RakNet::MessageID)ID_HEAL);
+			assert(g_rakPeerInterface->Send(&bs, HIGH_PRIORITY, RELIABLE_ORDERED, 0, g_serverAddress, false));
+
+		}
+	}
+}
+
+void DisplayTurn(RakNet::Packet* packet) {
+	RakNet::BitStream bs(packet->data, packet->length, false);
+	RakNet::MessageID mesId;
+	bs.Read(mesId);
+	std::string name;
+	bs.Read(name);
+	
+	
+	std::cout << "\n It is " << name << "'s turn";
+
+}
+
+void ShowPlayers(RakNet::Packet* packet) {
+	RakNet::BitStream bs(packet->data, packet->length, false);
+	RakNet::MessageID mesId;
+	unsigned int m_health, m_damage, m_heal, m_maxhealth;
+	std::string p1name, p2name, t1classname, t2classname;
+	unsigned int t1health, t1maxhealth, t2health, t2maxhealth;
+	EPlayerClass t1class, t2class;
+	//RakNet::RakNetGUID t1GUID, t2GUID;
+
+	bs.Read(mesId);
+
+	bs.Read(p1name);
+	bs.Read(t1class);
+	bs.Read(m_health);
+	bs.Read(m_maxhealth);
+	switch (t1class)
+	{
+	case Warrior:
+		t1classname = "Warrior";
+		break;
+	case Rogue:
+		t1classname = "Rogue";
+		break;
+	case Cleric:
+		t1classname = "Cleric";
+		break;
+	default:
+		break;
+	}
+	std::cout <<  "-------------------------------------------------------"  << std::endl;
+	std::cout << p1name << " " << t1classname << " HP: " << m_health << "/" << m_maxhealth << std::endl;
+
+	bs.Read(p1name);
+	bs.Read(t1class);
+	bs.Read(m_health);
+	bs.Read(m_maxhealth);
+	switch (t1class)
+	{
+	case Warrior:
+		t1classname = "Warrior";
+		break;
+	case Rogue:
+		t1classname = "Rogue";
+		break;
+	case Cleric:
+		t1classname = "Cleric";
+		break;
+	default:
+		break;
+	}
+	
+	std::cout << p1name << " " << t1classname << " HP: " << m_health << "/" << m_maxhealth << std::endl;
+
+	bs.Read(p1name);
+	bs.Read(t1class);
+	bs.Read(m_health);
+	bs.Read(m_maxhealth);
+	switch (t1class)
+	{
+	case Warrior:
+		t1classname = "Warrior";
+		break;
+	case Rogue:
+		t1classname = "Rogue";
+		break;
+	case Cleric:
+		t1classname = "Cleric";
+		break;
+	default:
+		break;
+	}
+	
+	std::cout << p1name << " " << t1classname << " HP: " << m_health << "/" << m_maxhealth << std::endl;
+
+	std::cout << "-------------------------------------------------------" << std::endl;
+
+
+}
+
 void PacketHandler()
 {
 	while (isRunning)
@@ -328,6 +530,14 @@ void PacketHandler()
 				case ID_DISPLAY_STATUS:
 					displayStat(packet);
 					break;
+
+				case ID_ASK_COMMAND:
+					PlayerTurn(packet);
+					break;
+				case ID_DisplayTurn:
+					DisplayTurn(packet);
+				case ID_SHOW_PLAYERS:
+					ShowPlayers(packet);
 				default:
 					break;
 				}
@@ -337,6 +547,7 @@ void PacketHandler()
 		std::this_thread::sleep_for(std::chrono::microseconds(1));
 	}
 }
+
 
 int main()
 {

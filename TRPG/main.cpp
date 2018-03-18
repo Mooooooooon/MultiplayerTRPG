@@ -11,7 +11,7 @@
 static unsigned int SERVER_PORT = 65000;
 static unsigned int CLIENT_PORT = 65001;
 static unsigned int MAX_CONNECTIONS = 4;
-
+int turn;
 
 enum NetworkState
 {
@@ -21,6 +21,7 @@ enum NetworkState
 	NS_Lobby,
 	NS_Pending,
 	NS_ReadyForGame,
+	NS_Waiting,
 
 };
 
@@ -32,6 +33,13 @@ RakNet::SystemAddress g_serverAddress;
 
 std::mutex g_networkState_mutex;
 NetworkState g_networkState = NS_Init;
+unsigned long playerArr[3];
+int playerCount = 0;
+RakNet::RakNetGUID p1GUID;
+RakNet::RakNetGUID p2GUID;
+RakNet::RakNetGUID p3GUID;
+
+
 
 enum {
 ID_THEGAME_LOBBY_READY = ID_USER_PACKET_ENUM,
@@ -39,6 +47,13 @@ ID_PLAYER_READY,
 ID_THEGAME_START, 
 ID_PLAYER_CLASS,
 ID_DISPLAY_STATUS,
+ID_ASK_COMMAND,
+ID_INC_COMMAND,
+ID_DisplayTurn,
+ID_ATTACK,
+ID_HEAL,
+ID_SHOW_PLAYERS,
+
  };
 
 enum EPlayerClass
@@ -56,10 +71,14 @@ struct SPlayer
 	
 	EPlayerClass m_class;
 	unsigned int m_health;
+	unsigned int m_maxhealth;
 	unsigned int m_heal;
 	unsigned int m_dodge;
 	unsigned int m_damage;
 	unsigned int m_counter;
+	RakNet::SystemAddress address;
+	RakNet::RakNetGUID myGUID;
+
 
 	//function to send a packet with name/health/class etc
 	// sends to client
@@ -114,10 +133,45 @@ struct SPlayer
 		writeBs.Write(m_health);
 		writeBs.Write(m_damage);
 		writeBs.Write(m_heal);
-
+		writeBs.Write(m_maxhealth);
 		assert(g_rakPeerInterface->Send(&writeBs, HIGH_PRIORITY, RELIABLE_ORDERED, 0, systemAddress, isBroadcast));
 	}
+
+	void AskCommand(RakNet::SystemAddress systemAddress, bool isBroadcast, SPlayer target1, SPlayer target2) {
+		std::cout << "\n AskCommand to ";
+
+		RakNet::BitStream bs;
+		bs.Write((RakNet::MessageID)ID_ASK_COMMAND);
+
+		bs.Write(m_health);		
+		bs.Write(m_maxhealth);
+
+		bs.Write(target1.myGUID);
+		bs.Write(target1.m_name);
+		bs.Write(target1.m_class);
+		bs.Write(target1.m_health);
+		bs.Write(target1.m_maxhealth);
+
+		bs.Write(target2.myGUID);
+		bs.Write(target2.m_name);
+		bs.Write(target2.m_class);
+		bs.Write(target2.m_health);
+		bs.Write(target2.m_maxhealth);
+
+		assert(g_rakPeerInterface->Send(&bs, HIGH_PRIORITY, RELIABLE_ORDERED, 0, systemAddress, isBroadcast));
+	}
+
+	void SendDisplayTurn(RakNet::SystemAddress systemAddress, bool isBroadcast, std::string name) {
+		RakNet::BitStream bs;
+		bs.Write((RakNet::MessageID)ID_DisplayTurn);
+		bs.Write(name);
+		assert(g_rakPeerInterface->Send(&bs, HIGH_PRIORITY, RELIABLE_ORDERED, 0, systemAddress, isBroadcast));
+	}
+
+	
 };
+
+
 
 std::map<unsigned long, SPlayer> m_players;
 
@@ -128,6 +182,48 @@ SPlayer& GetPlayer(RakNet::RakNetGUID raknetId)
 	assert(it != m_players.end());
 	return it->second;
 }
+
+void SendDisplayTurn_S(SPlayer turnplayer) {
+	RakNet::BitStream bs;
+	bs.Write((RakNet::MessageID)ID_DisplayTurn);
+	bs.Write(turnplayer.m_name);
+	SPlayer& p1 = GetPlayer(p1GUID);
+	SPlayer& p2 = GetPlayer(p2GUID);
+	SPlayer& p3 = GetPlayer(p3GUID);
+
+	p1.SendDisplayTurn(p1.address, true, turnplayer.m_name);
+
+
+}
+
+void SendShowPlayers() {
+	SPlayer& p1 = GetPlayer(p1GUID);
+	SPlayer& p2 = GetPlayer(p2GUID);
+	SPlayer& p3 = GetPlayer(p3GUID);
+	RakNet::BitStream bs;
+	bs.Write((RakNet::MessageID)ID_SHOW_PLAYERS);
+	bs.Write(p1.m_name);
+	bs.Write(p1.m_class);
+	bs.Write(p1.m_health);
+	bs.Write(p1.m_maxhealth);
+
+	bs.Write(p2.m_name);
+	bs.Write(p2.m_class);
+	bs.Write(p2.m_health);
+	bs.Write(p2.m_maxhealth);
+
+	bs.Write(p3.m_name);
+	bs.Write(p3.m_class);
+	bs.Write(p3.m_health);
+	bs.Write(p3.m_maxhealth);
+	assert(g_rakPeerInterface->Send(&bs, HIGH_PRIORITY, RELIABLE_ORDERED, 0, p1.address, false));
+	assert(g_rakPeerInterface->Send(&bs, HIGH_PRIORITY, RELIABLE_ORDERED, 0, p2.address, false));
+
+	assert(g_rakPeerInterface->Send(&bs, HIGH_PRIORITY, RELIABLE_ORDERED, 0, p3.address, false));
+
+
+}
+
 
 void OnLostConnection(RakNet::Packet* packet)
 {
@@ -144,6 +240,20 @@ void OnIncomingConnection(RakNet::Packet* packet)
 	assert(isServer);
 	m_players.insert(std::make_pair(RakNet::RakNetGUID::ToUint32(packet->guid), SPlayer()));
 	std::cout << "Total Players: " << m_players.size() << std::endl;
+	switch (m_players.size())
+	{
+	case 1:
+		p1GUID = packet->guid;
+		break;
+	case 2:
+		p2GUID = packet->guid;
+		break;
+	case 3:
+		p3GUID = packet->guid;
+		break;
+	default:
+		break;
+	}
 	
 }
 
@@ -184,28 +294,34 @@ void ApplyPlayerClass(RakNet::Packet* packet)
 	SPlayer& player = GetPlayer(packet->guid);
 	if (pclass == '1') {
 		player.m_class = Warrior;
-		player.m_health = 100;		
-		player.m_damage = 20;
+		player.m_health = 100;
+
+		player.m_damage = 21;
 		player.m_heal = 10;
 	}
 	else if (pclass == '2') {
 		player.m_class = Rogue;
 		player.m_health = 80;
-		player.m_damage = 40;
+		player.m_damage = 41;
 		player.m_heal = 10;
 		
 	}
 	else if (pclass == '3') {
 		player.m_class = Cleric;		
 		player.m_health = 80;
-		player.m_damage = 20;
+		player.m_damage = 21;
 		player.m_heal = 40;
 	}
-	
-	std::cout << "Health : " << player.m_health << " Damage : " << player.m_damage << " Heal : " << player.m_heal;
+	player.m_maxhealth = player.m_health;
+	player.address = packet->systemAddress;
+	player.myGUID = packet->guid;
+	//std::cout << "Health : " << player.m_health << " Damage : " << player.m_damage << " Heal : " << player.m_heal;
 }
 
+void BroadCastAction(RakNet::Packet* packet) {
+	 
 
+}
 
 void OnLobbyReady(RakNet::Packet* packet)
 {
@@ -397,7 +513,44 @@ bool HandleLowLevelPackets(RakNet::Packet* packet)
 }
 
 
+void ResolveBattle(RakNet::Packet *packet) {
 
+	std::cout << "\n Resolved";
+}
+
+void AttackResolve(RakNet::Packet *packet) {
+	std::cout << "\n Attacked";
+	RakNet::BitStream bs(packet->data, packet->length, false);
+	RakNet::MessageID messageId;
+	RakNet::RakNetGUID target;
+	bs.Read(messageId);
+	bs.Read(target);
+
+	SPlayer& targetPlayer = GetPlayer(target);
+	SPlayer& attacker = GetPlayer(packet->guid);
+
+	targetPlayer.m_health -= attacker.m_damage;
+
+	std::cout << "\n target health " << targetPlayer.m_health << std::endl;
+
+}
+
+
+void HealResolve(RakNet::Packet *packet) {
+	std::cout << "\n Healed";
+	RakNet::BitStream bs(packet->data, packet->length, false);
+	RakNet::MessageID messageId;
+	bs.Read(messageId);
+
+	SPlayer& healer = GetPlayer(packet->guid);
+	healer.m_health += healer.m_heal;
+	if (healer.m_health > healer.m_maxhealth)
+	{
+		healer.m_health = healer.m_maxhealth;
+
+	}
+
+}
 void PacketHandler()
 {
 	while (isRunning)
@@ -422,6 +575,15 @@ void PacketHandler()
 				case ID_DISPLAY_STATUS:
 					DisplayStatus(packet);
 					break;
+				case ID_INC_COMMAND:
+					ResolveBattle(packet);
+					break;
+				case ID_ATTACK:
+					AttackResolve(packet);
+					break;
+				case ID_HEAL:
+					HealResolve(packet);
+					break;
 				default:
 					break;
 				}
@@ -431,6 +593,64 @@ void PacketHandler()
 		std::this_thread::sleep_for(std::chrono::microseconds(1));
 	}
 }
+
+void gameloop() {
+	std::cout << "\ngameloop";
+	if (g_networkState == NS_Waiting)
+		return;
+	SPlayer& P1 = GetPlayer(p1GUID);
+	SPlayer& P2 = GetPlayer(p2GUID);
+	SPlayer& P3 = GetPlayer(p3GUID);
+	std::cout << "\n Turn " << turn << std::endl;
+	switch (turn)
+	{
+
+	case 1:
+		std::cout << "\n 1";
+		if (P1.m_health <= 0) {
+			turn++;
+			break;
+		}
+		SendDisplayTurn_S(P1);
+		P1.AskCommand(P1.address, false, P2, P3);
+		break;
+
+	case 2:
+		std::cout << "\n 2";
+		if (P2.m_health <= 0) {
+			turn++;
+			break;
+		}
+		SendDisplayTurn_S(P2);
+		P2.AskCommand(P2.address, false, P1, P3);
+		break;
+
+	case 3:
+		std::cout << "\n 3";
+		if (P3.m_health <= 0) {
+			turn++;
+			break;
+		}
+		SendDisplayTurn_S(P3);
+		P3.AskCommand(P3.address, false, P2, P1);
+		break;
+		
+
+	default:
+		break;
+	}
+
+
+	if (turn >= 3) {
+		turn = 1;
+	}
+
+
+	g_networkState = NS_Waiting;
+
+}
+
+
 
 int main()
 {
@@ -484,8 +704,11 @@ int main()
 			if (!doOnce) {
 
 				std::cout << "\n Preparing game... \n";
+				turn = 1;
 				doOnce = true;
 			}
+			std::cout << "\n read";
+			gameloop();
 
 		}
 		
@@ -498,3 +721,4 @@ int main()
 	packetHandler.join();
 	return 0;
 }
+

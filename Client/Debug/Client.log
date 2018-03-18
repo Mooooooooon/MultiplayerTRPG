@@ -1,3 +1,12 @@
 ﻿  client.cpp
-e:\github\multiplayertrpg\client\client.cpp(252): warning C4477: 'printf' : format string '%I64u' requires an argument of type 'unsigned __int64', but variadic argument 1 has type 'RakNet::RakNetGUID'
+e:\github\multiplayertrpg\client\client.cpp(259): warning C4477: 'printf' : format string '%I64u' requires an argument of type 'unsigned __int64', but variadic argument 1 has type 'RakNet::RakNetGUID'
+e:\github\multiplayertrpg\client\client.cpp(324): warning C4101: 'm_damage': unreferenced local variable
+e:\github\multiplayertrpg\client\client.cpp(324): warning C4101: 'm_heal': unreferenced local variable
+e:\github\multiplayertrpg\client\client.cpp(439): warning C4101: 'm_damage': unreferenced local variable
+e:\github\multiplayertrpg\client\client.cpp(441): warning C4101: 't1health': unreferenced local variable
+e:\github\multiplayertrpg\client\client.cpp(441): warning C4101: 't2health': unreferenced local variable
+e:\github\multiplayertrpg\client\client.cpp(442): warning C4101: 't2class': unreferenced local variable
+e:\github\multiplayertrpg\client\client.cpp(441): warning C4101: 't2maxhealth': unreferenced local variable
+e:\github\multiplayertrpg\client\client.cpp(441): warning C4101: 't1maxhealth': unreferenced local variable
+e:\github\multiplayertrpg\client\client.cpp(439): warning C4101: 'm_heal': unreferenced local variable
   Client.vcxproj -> E:\GitHub\MultiplayerTRPG\Debug\Client.exe
